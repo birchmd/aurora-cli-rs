@@ -1,4 +1,4 @@
-use aurora_engine_transactions::legacy::{LegacyEthSignedTransaction, TransactionLegacy};
+use aurora_engine_transactions::eip_1559::{SignedTransaction1559, Transaction1559, TYPE_BYTE};
 use aurora_engine_types::{types::Address, U256};
 use rlp::RlpStream;
 use secp256k1::{Message, PublicKey, SecretKey};
@@ -16,22 +16,21 @@ pub(crate) fn address_from_secret_key(sk: &SecretKey) -> Address {
 }
 
 pub(crate) fn sign_transaction(
-    tx: TransactionLegacy,
-    chain_id: u64,
+    tx: Transaction1559,
     secret_key: &SecretKey,
-) -> LegacyEthSignedTransaction {
+) -> SignedTransaction1559 {
     let mut rlp_stream = RlpStream::new();
-    tx.rlp_append_unsigned(&mut rlp_stream, Some(chain_id));
+    rlp_stream.append(&TYPE_BYTE);
+    tx.rlp_append_unsigned(&mut rlp_stream);
     let message_hash = aurora_engine_sdk::keccak(rlp_stream.as_raw());
     let message = Message::parse_slice(message_hash.as_bytes()).unwrap();
 
     let (signature, recovery_id) = secp256k1::sign(&message, secret_key);
-    let v: u64 = (recovery_id.serialize() as u64) + 2 * chain_id + 35;
     let r = U256::from_big_endian(&signature.r.b32());
     let s = U256::from_big_endian(&signature.s.b32());
-    LegacyEthSignedTransaction {
+    SignedTransaction1559 {
         transaction: tx,
-        v,
+        parity: recovery_id.serialize(),
         r,
         s,
     }
