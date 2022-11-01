@@ -182,8 +182,7 @@ impl<T: AsRef<str>> AuroraClient<T> {
             let response = self.near_client.call(request).await.unwrap();
             match response.outcome_proof.outcome.status {
                 near_primitives::views::ExecutionStatusView::SuccessValue(result) => {
-                    let result_bytes = base64::decode(result).unwrap();
-                    let result = SubmitResult::try_from_slice(&result_bytes).unwrap();
+                    let result = SubmitResult::try_from_slice(&result).unwrap();
                     return Ok(TransactionOutcome::Result(result));
                 }
                 near_primitives::views::ExecutionStatusView::Failure(e) => {
