@@ -24,6 +24,17 @@ pub enum Command {
 #[derive(Subcommand)]
 pub enum ReadCommand {
     GetResult { tx_hash_hex: String },
+    DebugTraceTransaction { tx_hash_hex: String },
+    Call {
+        #[clap(long)]
+        from: Option<String>,
+        #[clap(long)]
+        to: Option<String>,
+        #[clap(long)]
+        data: Option<String>,
+        #[clap(long)]
+        data_path: Option<String>,
+    }
 }
 
 #[derive(Subcommand)]
@@ -59,6 +70,26 @@ pub async fn execute_command<T: AsRef<str>>(
                     aurora_engine_types::H256::from_slice(&hex::decode(tx_hash_hex).unwrap());
                 let outcome = client.get_transaction_outcome(tx_hash).await?;
                 println!("{:?}", outcome);
+            }
+            ReadCommand::DebugTraceTransaction { tx_hash_hex } => {
+                let tx_hash_hex = tx_hash_hex.strip_prefix("0x").unwrap_or(&tx_hash_hex);
+                let tx_hash =
+                    aurora_engine_types::H256::from_slice(&hex::decode(tx_hash_hex).unwrap());
+                let outcome = client.get_debug_trace(tx_hash).await?;
+                println!("{outcome}");
+            }
+            ReadCommand::Call { from, to, data, data_path } => {
+                let data_hex = data_path.and_then(|p| std::fs::read_to_string(p).ok()).or(data);
+                let from = from.as_ref().and_then(|x| x.strip_prefix("0x")).or(from.as_deref());
+                let to = to.as_ref().and_then(|x| x.strip_prefix("0x")).or(to.as_deref());
+                let data_hex = data_hex.as_ref().and_then(|x| x.strip_prefix("0x")).or(data_hex.as_deref());
+                let args = crate::eth_method::EthCall {
+                    from: from.and_then(|s| Address::decode(s.trim()).ok()),
+                    to: to.and_then(|s| Address::decode(s.trim()).ok()),
+                    data: data_hex.and_then(|h| hex::decode(h.trim()).ok()),
+                };
+                let outcome = client.do_eth_call(args).await?;
+                println!("{outcome}");
             }
         },
         Command::Write { subcommand } => match subcommand {

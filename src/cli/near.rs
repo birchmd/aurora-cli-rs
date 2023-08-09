@@ -32,7 +32,7 @@ pub enum ReadCommand {
         #[clap(short, long)]
         amount: Option<String>,
         #[clap(short, long)]
-        input_data_hex: String,
+        input_data_hex: Option<String>,
     },
     EngineXccDryRun {
         #[clap(short, long)]
@@ -77,6 +77,11 @@ pub enum ReadCommand {
         nep_141_account: String,
     },
     GetEngineBridgeProver,
+    GetBalance {
+        #[clap(short, long)]
+        addr_hex: String,
+    },
+    GetFixedGasCost,
 }
 
 #[derive(Subcommand)]
@@ -146,12 +151,21 @@ pub async fn execute_command<T: AsRef<str>>(
             } => {
                 let (sender, target, amount) =
                     parse_read_call_args(sender_addr_hex, target_addr_hex, amount);
-                let input = hex::decode(input_data_hex)?;
+                let input = match input_data_hex {
+                    Some(data) => hex::decode(data)?,
+                    None => Vec::new(),
+                };
                 let result = client
                     .view_contract_call(sender, target, amount, input)
                     .await
                     .unwrap();
                 println!("{:?}", result);
+            }
+            ReadCommand::GetBalance { addr_hex } => {
+                let address = Address::decode(addr_hex.strip_prefix("0x").unwrap_or(&addr_hex)).unwrap();
+                let result = client.near_view_call("get_balance".into(), address.as_bytes().to_vec()).await?;
+                let amount = U256::from_big_endian(&result.result);
+                println!("{:?}", amount);
             }
             ReadCommand::EngineErc20 {
                 erc20,
@@ -162,6 +176,7 @@ pub async fn execute_command<T: AsRef<str>>(
                 let (sender, target, amount) =
                     parse_read_call_args(sender_addr_hex, target_addr_hex, amount);
                 let input = erc20.abi_encode()?;
+                println!("{}", hex::encode(&input));
                 let result = client
                     .view_contract_call(sender, target, amount, input)
                     .await
@@ -231,6 +246,10 @@ pub async fn execute_command<T: AsRef<str>>(
             }
             ReadCommand::GetEngineBridgeProver => {
                 println!("{:?}", client.get_bridge_prover().await);
+            }
+            ReadCommand::GetFixedGasCost => {
+                let x = client.near_view_call("get_fixed_gas_cost".into(), Vec::new()).await.unwrap();
+                println!("{:?}", x.result);
             }
         },
         Command::Write { subcommand } => match subcommand {

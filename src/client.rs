@@ -58,11 +58,13 @@ impl<T: AsRef<str>> AuroraClient<T> {
         // TODO: parse information from headers too (eg x-request-id)
         // println!("{:?}", resp.headers());
         let full = resp.bytes().await?;
-        serde_json::from_slice(&full).map_err(|_| {
+        serde_json::from_slice(&full).map_err(|e| {
             let text = match String::from_utf8_lossy(&full) {
                 std::borrow::Cow::Owned(s) => s,
                 std::borrow::Cow::Borrowed(s) => s.to_owned(),
             };
+            println!("{e:?}");
+            println!("{text}");
             ClientError::InvalidJson(text)
         })
     }
@@ -104,14 +106,16 @@ impl<T: AsRef<str>> AuroraClient<T> {
     ) -> Result<H256, ClientError> {
         let tx = TransactionLegacy {
             nonce,
-            gas_price: U256::zero(),
-            gas_limit: U256::from(u64::MAX),
+            gas_price: 6000000000_u64.into(),
+            gas_limit: 21_000_u64.into(),
             to: target,
             value: amount,
             data,
         };
         let signed_tx =
             EthTransactionKind::Legacy(crate::utils::sign_transaction(tx, chain_id, signer));
+        let tx_bytes: Vec<u8> = (&signed_tx).into();
+        println!("TX {}", hex::encode(tx_bytes));
         let method = EthMethod::SendRawTransaction(Box::new(signed_tx));
         let request = Web3JsonRequest::from_method(1, &method);
         let response = self.request(&request).await?;
@@ -126,6 +130,38 @@ impl<T: AsRef<str>> AuroraClient<T> {
             .and_then(|x| hex::decode(x).ok())
             .unwrap();
         Ok(H256::from_slice(&tx_hash_bytes))
+    }
+
+    pub async fn get_debug_trace(
+        &self,
+        tx_hash: H256,
+    ) -> Result<String, ClientError> {
+        let method = EthMethod::DebugTraceTransaction(tx_hash);
+        let request = Web3JsonRequest::from_method(1, &method);
+        let response = self.request(&request).await?;
+
+        if let Some(e) = response.error {
+            return Err(e.into());
+        }
+
+        let result = serde_json::to_string_pretty(&response.result.unwrap()).unwrap();
+        Ok(result)
+    }
+
+    pub async fn do_eth_call(
+        &self,
+        args: crate::eth_method::EthCall,
+    ) -> Result<String, ClientError> {
+        let method = EthMethod::Call(args);
+        let request = Web3JsonRequest::from_method(1, &method);
+        let response = self.request(&request).await?;
+
+        if let Some(e) = response.error {
+            return Err(e.into());
+        }
+
+        let result = serde_json::to_string_pretty(&response.result.unwrap()).unwrap();
+        Ok(result)
     }
 
     pub async fn get_transaction_outcome(
@@ -324,7 +360,7 @@ pub struct Web3JsonRequest<'method, 'version, T> {
     params: T,
 }
 
-impl<'a> Web3JsonRequest<'a, 'static, Vec<String>> {
+impl<'a> Web3JsonRequest<'a, 'static, Vec<serde_json::Value>> {
     pub fn from_method(id: u32, method: &'a EthMethod) -> Self {
         Self {
             jsonrpc: "2.0",
@@ -348,7 +384,7 @@ pub struct Web3JsonResponse<T> {
 #[allow(dead_code)]
 pub struct Web3JsonResponseError {
     code: i64,
-    data: serde_json::Value,
+    data: Option<serde_json::Value>,
     message: String,
 }
 
